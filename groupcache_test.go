@@ -325,11 +325,16 @@ func TestPeersAndReadOnly(t *testing.T) {
 	peer0.fail = true
 	run("peer0_failing", 200, "localHits = 100, peers = 51 49 51")
 
+	// read-only tests. Should be no localhits
 	peer0.fail = false
 	testGroup.peers = fakePeers([]ProtoGetter{peer0, peer1, peer2})
 	testGroup.readOnly = true
 	readOnlyTest = true
+	resetCacheSize(1 << 20)
 	run("read-only group", 200, "localHits = 0, peers = 62 75 63")
+
+	// every item should have been put in the hotcache in the previous test, should be no hits
+	run("read-only group with cache", 200, "localHits = 0, peers = 0 0 0")
 }
 
 func TestTruncatingByteSliceTarget(t *testing.T) {

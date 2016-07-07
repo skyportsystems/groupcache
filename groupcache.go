@@ -249,7 +249,6 @@ func (g *Group) load(ctx Context, key string, dest Sink) (value ByteView, destPo
 			// probably boring (normal task movement), so not
 			// worth logging I imagine.
 		} else if g.readOnly {
-			fmt.Println("PEER: ", peer)
 			panic("Read-only cache should not be included in the peers list (or be the only participant in the cache)")
 		}
 		value, err = g.getLocally(ctx, key, dest)
