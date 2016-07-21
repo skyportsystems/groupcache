@@ -240,10 +240,13 @@ func (g *Group) load(ctx Context, key string, dest Sink) (value ByteView, destPo
 			if err == nil {
 				g.Stats.PeerLoads.Add(1)
 				return value, nil
-			} else if g.readOnly {
+			}
+
+			g.Stats.PeerErrors.Add(1)
+
+			if g.readOnly {
 				return nil, fmt.Errorf("Read-only cache cannot load locally after peer error: %v", err)
 			}
-			g.Stats.PeerErrors.Add(1)
 			// TODO(bradfitz): log the peer's error? keep
 			// log of the past few for /groupcachez?  It's
 			// probably boring (normal task movement), so not
