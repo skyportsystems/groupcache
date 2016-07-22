@@ -36,6 +36,9 @@ import (
 	"github.com/golang/groupcache/singleflight"
 )
 
+// function that takes a (just-loaded) key and value, and returns
+// a bool indicating whether or not to populate the hotcache with
+// the new key and value (default to 10 percent of the time)
 type HotCacheCheckerFunc func(key string, val ByteView) bool
 
 // A Getter loads data for a key.
