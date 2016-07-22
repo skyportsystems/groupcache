@@ -36,8 +36,6 @@ import (
 	"github.com/golang/groupcache/singleflight"
 )
 
-type HotCacheCheckerFunc func(key string, val ByteView) bool
-
 // A Getter loads data for a key.
 type Getter interface {
 	// Get returns the value identified by key, populating dest.
@@ -83,20 +81,13 @@ func GetGroup(name string) *Group {
 //
 // The group name must be unique for each getter.
 func NewGroup(name string, cacheBytes int64, getter Getter) *Group {
-	return newGroup(name, cacheBytes, getter, nil, nil)
-}
-
-func NewGroupHotCacheChecker(name string, cacheBytes int64, getter Getter, hcf HotCacheCheckerFunc) *Group {
-	return newGroup(name, cacheBytes, getter, nil, hcf)
+	return newGroup(name, cacheBytes, getter, nil)
 }
 
 // If peers is nil, the peerPicker is called via a sync.Once to initialize it.
-func newGroup(name string, cacheBytes int64, getter Getter, peers PeerPicker, hcf HotCacheCheckerFunc) *Group {
+func newGroup(name string, cacheBytes int64, getter Getter, peers PeerPicker) *Group {
 	if getter == nil {
 		panic("nil Getter")
-	}
-	if hcf == nil {
-		hcf = popHotCacheTenPercent
 	}
 	mu.Lock()
 	defer mu.Unlock()
@@ -105,11 +96,10 @@ func newGroup(name string, cacheBytes int64, getter Getter, peers PeerPicker, hc
 		panic("duplicate registration of group " + name)
 	}
 	g := &Group{
-		name:             name,
-		getter:           getter,
-		peers:            peers,
-		cacheBytes:       cacheBytes,
-		checkForHotCache: hcf,
+		name:       name,
+		getter:     getter,
+		peers:      peers,
+		cacheBytes: cacheBytes,
 	}
 	if fn := newGroupHook; fn != nil {
 		fn(g)
@@ -174,11 +164,6 @@ type Group struct {
 	// (either locally or remotely), regardless of the number of
 	// concurrent callers.
 	loadGroup singleflight.Group
-
-	// takes the key and value and returns a boolean as to whether
-	// the hotcache should be populated. Defaults to 10 percent of
-	// the time regardless of key/value.
-	checkForHotCache HotCacheCheckerFunc
 
 	// Stats are statistics on the group.
 	Stats Stats
@@ -293,7 +278,7 @@ func (g *Group) getFromPeer(ctx Context, peer ProtoGetter, key string) (ByteView
 	// TODO(bradfitz): use res.MinuteQps or something smart to
 	// conditionally populate hotCache.  For now just do it some
 	// percentage of the time.
-	if g.checkForHotCache(key, value) {
+	if rand.Intn(10) == 0 {
 		g.populateCache(key, value, &g.hotCache)
 	}
 	return value, nil
@@ -334,10 +319,6 @@ func (g *Group) populateCache(key string, value ByteView, cache *cache) {
 		}
 		victim.removeOldest()
 	}
-}
-
-func popHotCacheTenPercent(_ string, _ ByteView) bool {
-	return rand.Intn(10) == 0
 }
 
 // CacheType represents a type of cache.
