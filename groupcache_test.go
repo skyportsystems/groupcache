@@ -262,7 +262,7 @@ func TestPeers(t *testing.T) {
 		localHits++
 		return dest.SetString("got:" + key)
 	}
-	testGroup := newGroup("TestPeers-group", cacheSize, GetterFunc(getter), peerList)
+	testGroup := newGroup("TestPeers-group", cacheSize, GetterFunc(getter), peerList, nil)
 	run := func(name string, n int, wantSummary string) {
 		// Reset counters
 		localHits = 0
