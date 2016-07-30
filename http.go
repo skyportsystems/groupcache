@@ -52,7 +52,7 @@ type HTTPPool struct {
 	mu          sync.Mutex // guards the peerPickers map
 	peerPickers map[string]*HTTPPeerPicker
 
-	opts *HTTPPoolOptions
+	opts HTTPPoolOptions
 }
 
 type HTTPPeerPicker struct {
@@ -100,16 +100,20 @@ func NewHTTPPoolOpts(self string, o *HTTPPoolOptions) *HTTPPool {
 	}
 	httpPoolMade = true
 
-	opts := HTTPPoolOptions{}
+	p := &HTTPPool{
+		self:        self,
+		httpGetters: make(map[string]*httpGetter),
+	}
 	if o != nil {
-		opts = *o
+		p.opts = *o
 	}
-	if opts.BasePath == "" {
-		opts.BasePath = defaultBasePath
+	if p.opts.BasePath == "" {
+		p.opts.BasePath = defaultBasePath
 	}
-	if opts.Replicas == 0 {
-		opts.Replicas = defaultReplicas
+	if p.opts.Replicas == 0 {
+		p.opts.Replicas = defaultReplicas
 	}
+	p.peers = consistenthash.New(p.opts.Replicas, p.opts.HashFn)
 
 	p := &HTTPPool{
 		opts:        &opts,
@@ -176,7 +180,7 @@ func (p *HTTPPool) PickGroupPeer(groupName string, key string) (ProtoGetter, boo
 func (p *HTTPPeerPicker) Set(peers ...string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.peers = consistenthash.New(defaultReplicas, nil)
+	p.peers = consistenthash.New(p.opts.Replicas, p.opts.HashFn)
 	p.peers.Add(peers...)
 	p.httpGetters = make(map[string]*httpGetter, len(peers))
 	for _, peer := range peers {
