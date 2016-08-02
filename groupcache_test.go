@@ -306,6 +306,20 @@ func TestPeers(t *testing.T) {
 	run("cached_base", 200, "localHits = 0, peers = 49 47 48")
 	resetCacheSize(0)
 
+	// redo the previous four lines of code, but with hot cache disabled to test hot cache checker func
+	resetCacheSize(1 << 20)
+	testGroup.checkForHotCache = HotCacheCheckerFunc(func(_ string, _ ByteView) bool { return false })
+	run("base2", 200, "localHits = 49, peers = 51 49 51")
+	run("base_no_hot_cache", 200, "localHits = 0, peers = 51 49 51")
+	resetCacheSize(0)
+
+	// redo again, but with hot cache always used to test hot cache checker func
+	resetCacheSize(1 << 20)
+	testGroup.checkForHotCache = HotCacheCheckerFunc(func(_ string, _ ByteView) bool { return true })
+	run("base", 200, "localHits = 49, peers = 51 49 51")
+	run("base_all_hot_cache", 200, "localHits = 0, peers = 0 0 0")
+	resetCacheSize(0)
+
 	// With one of the peers being down.
 	// TODO(bradfitz): on a peer number being unavailable, the
 	// consistent hashing should maybe keep trying others to
@@ -360,86 +374,6 @@ func TestAllocatingByteSliceTarget(t *testing.T) {
 	}
 	if &dst[0] == &v.b[0] {
 		t.Error("dst and view share memory")
-	}
-}
-
-// orderedFlightGroup allows the caller to force the schedule of when
-// orig.Do will be called.  This is useful to serialize calls such
-// that singleflight cannot dedup them.
-type orderedFlightGroup struct {
-	mu     sync.Mutex
-	stage1 chan bool
-	stage2 chan bool
-	orig   flightGroup
-}
-
-func (g *orderedFlightGroup) Do(key string, fn func() (interface{}, error)) (interface{}, error) {
-	<-g.stage1
-	<-g.stage2
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.orig.Do(key, fn)
-}
-
-// TestNoDedup tests invariants on the cache size when singleflight is
-// unable to dedup calls.
-func TestNoDedup(t *testing.T) {
-	const testkey = "testkey"
-	const testval = "testval"
-	g := newGroup("testgroup", 1024, GetterFunc(func(_ Context, key string, dest Sink) error {
-		return dest.SetString(testval)
-	}), nil)
-
-	orderedGroup := &orderedFlightGroup{
-		stage1: make(chan bool),
-		stage2: make(chan bool),
-		orig:   g.loadGroup,
-	}
-	// Replace loadGroup with our wrapper so we can control when
-	// loadGroup.Do is entered for each concurrent request.
-	g.loadGroup = orderedGroup
-
-	// Issue two idential requests concurrently.  Since the cache is
-	// empty, it will miss.  Both will enter load(), but we will only
-	// allow one at a time to enter singleflight.Do, so the callback
-	// function will be called twice.
-	resc := make(chan string, 2)
-	for i := 0; i < 2; i++ {
-		go func() {
-			var s string
-			if err := g.Get(dummyCtx, testkey, StringSink(&s)); err != nil {
-				resc <- "ERROR:" + err.Error()
-				return
-			}
-			resc <- s
-		}()
-	}
-
-	// Ensure both goroutines have entered the Do routine.  This implies
-	// both concurrent requests have checked the cache, found it empty,
-	// and called load().
-	orderedGroup.stage1 <- true
-	orderedGroup.stage1 <- true
-	orderedGroup.stage2 <- true
-	orderedGroup.stage2 <- true
-
-	for i := 0; i < 2; i++ {
-		if s := <-resc; s != testval {
-			t.Errorf("result is %s want %s", s, testval)
-		}
-	}
-
-	const wantItems = 1
-	if g.mainCache.items() != wantItems {
-		t.Errorf("mainCache has %d items, want %d", g.mainCache.items(), wantItems)
-	}
-
-	// If the singleflight callback doesn't double-check the cache again
-	// upon entry, we would increment nbytes twice but the entry would
-	// only be in the cache once.
-	const wantBytes = int64(len(testkey) + len(testval))
-	if g.mainCache.nbytes != wantBytes {
-		t.Errorf("cache has %d bytes, want %d", g.mainCache.nbytes, wantBytes)
 	}
 }
 
